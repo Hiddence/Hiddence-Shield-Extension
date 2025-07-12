@@ -1,0 +1,10 @@
+{
+    "extensionName": {
+      "message": "Hiddence Shield",
+      "description": "Název rozšíření"
+    },
+    "extensionDescription": {
+      "message": "Hiddence Shield: bezplatná, rychlá a spolehlivá VPN pro anonymitu, ochranu dat a neomezený přístup.",
+      "description": "Popis rozšíření"
+    }
+  }

@@ -179,16 +179,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             measurePing().then(result => {
                 if (result.success) {
                     servers[serverKey].ping = result.ping;
+                    sendResponse({ 
+                        status: 'success', 
+                        server: servers[serverKey] || servers.auto 
+                    });
+                } else {
+                    sendResponse({
+                        status: 'error',
+                        error: result.error
+                    });
                 }
-                
+            }).catch((e) => {
                 sendResponse({ 
-                    status: 'success', 
-                    server: servers[serverKey] || servers.auto 
-                });
-            }).catch(() => {
-                sendResponse({ 
-                    status: 'success', 
-                    server: servers[serverKey] || servers.auto 
+                    status: 'error', 
+                    error: e.message 
                 });
             });
         } else {

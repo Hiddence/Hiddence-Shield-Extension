@@ -1,0 +1,10 @@
+{
+  "extensionName": {
+    "message": "Hiddence Shield",
+    "description": "Nome da extensão"
+  },
+  "extensionDescription": {
+    "message": "Hiddence Shield: uma VPN gratuita, rápida e confiável para anonimato, proteção de dados e acesso irrestrito.",
+    "description": "Descrição da extensão"
+  }
+} 

@@ -1,0 +1,10 @@
+{
+    "extensionName": {
+      "message": "Hiddence Shield",
+      "description": "Uzantı adı"
+    },
+    "extensionDescription": {
+      "message": "Hiddence Shield: anonimlik, veri koruma ve sınırsız erişim için ücretsiz, hızlı, güvenilir bir VPN.", 
+      "description": "Uzantı açıklaması"
+    }
+  }
