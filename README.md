@@ -23,7 +23,7 @@ To run this extension, you'll need to build it from the source.
     ```
 2.  Navigate to the project directory:
     ```bash
-    cd Hiddence-Shield
+    cd Hiddence-Shield-Extension
     ```
 3.  Install the dependencies:
     ```bash
