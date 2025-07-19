@@ -387,9 +387,10 @@ const App = () => {
   }, [updateWebRTCPolicy]);
 
   useEffect(() => {
-    let pingInterval;
-    if (isConnected && !isConnecting) {
-      pingInterval = setInterval(() => {
+    let pingTimeout;
+
+    const checkPing = () => {
+      if (isConnected && !isConnecting) {
         chrome.runtime.sendMessage({ action: 'getPing' }, (response) => {
           if (response && response.status === 'success' && response.ping) {
             setPing(`${response.ping}ms`);
@@ -398,16 +399,22 @@ const App = () => {
             setPing('--');
             setConnectionError(response?.error || 'Ping failed');
             setIsConnected(false);
+            
+            chrome.runtime.sendMessage({ action: 'clearProxy' });
+
             chrome.storage.local.set({ vpnConnected: false });
             updateWebRTCPolicy(false, webrtcEnabled);
           }
+          pingTimeout = setTimeout(checkPing, 2000);
         });
-      }, 2000);
-    }
+      }
+    };
+
+    pingTimeout = setTimeout(checkPing, 2000);
 
     return () => {
-      if (pingInterval) {
-        clearInterval(pingInterval);
+      if (pingTimeout) {
+        clearTimeout(pingTimeout);
       }
     };
   }, [isConnected, isConnecting, updateWebRTCPolicy, webrtcEnabled]);
@@ -554,7 +561,7 @@ const App = () => {
         </div>
       </div>
       <footer>
-        <span className="version">v1.1</span>
+        <span className="version">v1.1.1</span>
       </footer>
     </div>
   );

@@ -1,14 +1,20 @@
 {
   "name": "hiddenceshield",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "**Hiddence Shield** is an open-source Chrome extension that allows users to connect to a proxy server directly from their browser. It provides a simple and intuitive interface to toggle the VPN connection, enhancing privacy and accessibility while browsing the web.",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "webpack --mode=production"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "hiddence",
+    "shield",
+    "vpn",
+    "proxy",
+    "browser"
+  ],
+  "author": "Hiddence",
   "license": "ISC",
   "dependencies": {
     "react": "^19.1.0",

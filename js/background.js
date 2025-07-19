@@ -4,7 +4,7 @@ const PROXY_SCHEME = 'socks5';
 
 const servers = {
     auto: { 
-        host: PROXY_HOST, 
+        host: PROXY_HOST,
         port: PROXY_PORT,
         scheme: PROXY_SCHEME,
         ping: null
