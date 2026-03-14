@@ -1,94 +1,273 @@
 # Hiddence Shield
 
-**Hiddence Shield** is an open-source Chrome extension that allows users to connect to a proxy server directly from their browser. It provides a simple and intuitive interface to toggle the VPN connection, enhancing privacy and accessibility while browsing the web.
+**Hiddence Shield** is a shared **Chrome** and **Firefox** extension codebase built with **React**. It provides browser-based proxy connection management with a modern popup UI, latency checks, connection-loss handling, WebRTC protection, notifications, and multi-language support.
 
-![Hiddence Shield VPN extension](img/screenshot.png)
-
-This project is built with **React**.
+![Hiddence Shield screenshot](src/assets/screenshot.png)
 
 ## Features
 
-- **One-Click Connect**: Easily connect and disconnect from the proxy server with a single click.
-- **Connection Status**: View the current connection status and latency (ping).
-- **WebRTC Leak Protection**: Includes an option to disable WebRTC to prevent IP address leaks.
-- **Multi-language Support**: The interface is available in multiple languages.
+- One-click proxy connect and disconnect
+- Shared UI and logic for Chrome and Firefox
+- Browser-specific background and manifest targets
+- Multi-server support
+- Latency measurement using a remote probe endpoint
+- WebRTC leak protection
+- Disconnect detection with badge and notification updates
+- Localized interface
 
-## Installation and Building from Source
+## Project Structure
 
-To run this extension, you'll need to build it from the source.
+```text
+archive/
+  src/
+    App.js
+    index.js
+    popup.html
+    styles.css
+    assets/
+    config/
+      servers.js
+    background/
+      common.js
+      chrome.js
+      firefox.js
+    lib/
+      browserApi.js
+      constants.js
+      network.js
+    i18n/
+      translations.js
+  targets/
+    chrome/manifest.json
+    firefox/manifest.json
+  _locales/
+  rules.json
+  webpack.config.js
+  package.json
+```
 
-1.  Clone the repository:
-    ```bash
-    git clone https://github.com/Hiddence/Hiddence-Shield-Extension.git
-    ```
-2.  Navigate to the project directory:
-    ```bash
-    cd Hiddence-Shield-Extension
-    ```
-3.  Install the dependencies:
-    ```bash
-    npm install
-    ```
-4.  Build the project:
-    ```bash
-    npm run build
-    ```
-5.  The compiled extension will be in the `dist/` directory.
-6.  Open Chrome and navigate to `chrome://extensions/`.
-7.  Enable "Developer mode" in the top right corner.
-8.  Click "Load unpacked" and select the `dist/` directory from this project.
+## Build
+
+Install dependencies:
+
+```bash
+npm install
+```
+
+Build both targets:
+
+```bash
+npm run build
+```
+
+Build only one browser:
+
+```bash
+npm run build:chrome
+npm run build:firefox
+```
+
+The compiled builds are written to:
+
+- `dist/chrome`
+- `dist/firefox`
+
+## Loading the Extension
+
+### Chrome
+
+1. Open `chrome://extensions/`
+2. Enable Developer mode
+3. Click `Load unpacked`
+4. Select `dist/chrome`
+
+### Firefox
+
+1. Open `about:debugging#/runtime/this-firefox`
+2. Click `Load Temporary Add-on`
+3. Select `dist/firefox/manifest.json`
 
 ## Configuration
 
-Before using the extension, you need to configure it to work with your proxy server.
+### Change proxy servers
 
-### Proxy Settings
+Edit `src/config/servers.js`.
 
-Open the `js/background.js` file and locate the proxy configuration section:
+This file contains the available server list used by the popup and background logic.
+
+Current example format:
 
 ```javascript
-const PROXY_HOST = 'proxy.example.com';
-const PROXY_PORT = 1080;
-const PROXY_SCHEME = 'socks5';
+export const SERVER_LIST = [
+  {
+    id: 'uae',
+    host: 'uae-example.proxy-example.com',
+    port: 8080,
+    scheme: 'http',
+    country: 'United Arab Emirates',
+    flag: '🇦🇪',
+  },
+  {
+    id: 'us',
+    host: 'us-example.proxy-example.com',
+    port: 8080,
+    scheme: 'http',
+    country: 'United States',
+    flag: '🇺🇸',
+  }
+];
 ```
 
-Replace the proxy configuration with your own settings.
+To add or change proxy locations, update:
 
-## Language Support
+- `host`
+- `port`
+- `scheme`
+- `country`
+- `flag`
+- `id`
 
-The extension supports the following languages. The interface will automatically try to match your browser's language, or you can select one manually.
+### Change proxy credentials
 
--   🇺🇸 English (en)
--   🇷🇺 Russian (ru)
--   🇪🇸 Spanish (es)
--   🇩🇪 German (de)
--   🇺🇦 Ukrainian (uk)
--   🇵🇹 Portuguese (pt)
--   🇮🇹 Italian (it)
--   🇫🇷 French (fr)
--   🇳🇱 Dutch (nl)
--   🇸🇪 Swedish (sv)
--   🇸🇦 Arabic (ar)
--   🇯🇵 Japanese (ja)
--   🇨🇳 Chinese (zh)
--   🇻🇳 Vietnamese (vi)
--   🇹🇷 Turkish (tr)
--   🇬🇷 Greek (el)
--   🇵🇱 Polish (pl)
--   🇰🇷 Korean (ko)
--   🇮🇱 Hebrew (he)
--   🇨🇿 Czech (cs)
--   🇱🇹 Lithuanian (lt)
--   🇱🇻 Latvian (lv)
--   🇪🇪 Estonian (et)
+Edit `src/background/common.js`.
 
-Translations are managed within the React component at `src/App.js`.
+Proxy authentication values are defined here:
 
-## Security Considerations
+```javascript
+export const PROXY_USERNAME = 'PROXY_USERNAME';
+export const PROXY_PASSWORD = 'PROXY_PASSWORD';
+```
 
-- **Hardcoded Credentials**: Avoid hardcoding sensitive information like usernames and passwords directly into the code.
-- **Secure Proxy Certificate**: If your proxy server uses a self-signed SSL certificate, you may encounter certificate errors. It is recommended to use a certificate from a trusted Certificate Authority (CA).
+Replace these placeholders with your actual proxy credentials.
+
+This file also contains shared background settings such as:
+
+- keep-alive alarm name
+- keep-alive interval
+- ping measurement logic
+- shared runtime state helpers
+
+### Change keep-alive and ping settings
+
+Also in `src/background/common.js`:
+
+```javascript
+export const KEEP_ALIVE_INTERVAL_MINUTES = 0.5;
+```
+
+And in `src/lib/constants.js`:
+
+```javascript
+export const PING_POLL_MS = 4000;
+export const PING_TIMEOUT_MS = 5000;
+```
+
+These values control:
+
+- background health-check interval
+- popup ping refresh timing
+- timeout for probe requests
+
+### Change browser-specific behavior
+
+Browser-specific background logic is separated into:
+
+- `src/background/chrome.js`
+- `src/background/firefox.js`
+
+These files handle:
+
+- applying proxy settings
+- clearing proxy settings
+- proxy authentication flow
+- badge state updates
+- disconnect notifications
+- browser-specific privacy integration
+
+### Change permissions or manifest settings
+
+Edit:
+
+- `targets/chrome/manifest.json`
+- `targets/firefox/manifest.json`
+
+These files control:
+
+- permissions
+- host permissions
+- extension action settings
+- background entry points
+- browser-specific metadata
+
+### Change UI
+
+Edit:
+
+- `src/App.js`
+- `src/styles.css`
+- `src/popup.html`
+- `src/index.js`
+
+### Change translations
+
+Translations are stored in:
+
+- `src/i18n/translations.js`
+- `_locales/*/messages.json`
+
+If you add a new user-facing string, keep translations in sync across both shared UI translations and locale metadata where needed.
+
+### Change assets
+
+Shared assets are stored in `src/assets`.
+
+Webpack copies assets, locale files, manifest files, and `rules.json` into the browser-specific `dist` output.
+
+## How connection monitoring works
+
+The extension checks proxy health in the background while connected.
+
+It uses:
+
+- a probe request to `https://www.cloudflare.com/cdn-cgi/trace` for latency and availability checks
+- alarms for periodic background checks
+- badge updates to reflect connected or problem states
+- notifications to warn users when the proxy connection is lost unexpectedly
+
+## Supported Languages
+
+The extension includes support for:
+
+- English
+- Russian
+- Spanish
+- German
+- Ukrainian
+- Portuguese
+- Italian
+- French
+- Dutch
+- Swedish
+- Arabic
+- Japanese
+- Chinese
+- Vietnamese
+- Turkish
+- Greek
+- Polish
+- Korean
+- Hebrew
+- Czech
+- Lithuanian
+- Latvian
+- Estonian
+
+## Notes
+
+- This project uses placeholder proxy hosts and placeholder credentials by default.
+- Before using it in production, replace the example values in `src/config/servers.js` and `src/background/common.js`.
+- After changing proxy or manifest behavior, test both Chrome and Firefox builds.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License. See `LICENSE` for details.

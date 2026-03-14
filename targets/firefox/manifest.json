@@ -1,0 +1,54 @@
+{
+  "manifest_version": 3,
+  "name": "__MSG_extensionName__",
+  "version": "1.3.0",
+  "description": "__MSG_extensionDescription__",
+  "author": "Hiddence",
+  "default_locale": "en",
+  "icons": {
+    "16": "assets/logo/icon-16.png",
+    "48": "assets/logo/icon-48.png",
+    "128": "assets/logo/icon-128.png"
+  },
+  "permissions": [
+    "proxy",
+    "storage",
+    "notifications",
+    "privacy",
+    "declarativeNetRequest",
+    "webRequest",
+    "webRequestBlocking",
+    "alarms"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "assets/logo/icon-16.png",
+      "48": "assets/logo/icon-48.png",
+      "128": "assets/logo/icon-128.png"
+    }
+  },
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "ruleset_1",
+        "enabled": true,
+        "path": "rules.json"
+      }
+    ]
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "admin@hiddence.net",
+      "strict_min_version": "113.0"
+    }
+  }
+}
