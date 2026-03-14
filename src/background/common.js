@@ -37,14 +37,17 @@ export function wait(delayMs) {
   });
 }
 
-export async function measurePing() {
+export const PING_TEST_URL = 'https://www.cloudflare.com/cdn-cgi/trace';
+const MEASURE_PING_MAX_RETRIES = 3;
+const MEASURE_PING_RETRY_DELAY_MS = 1500;
+
+async function singlePing() {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), PING_TIMEOUT_MS);
-  const testUrl = 'https://www.cloudflare.com/cdn-cgi/trace';
 
   try {
     const startedAt = performance.now();
-    const response = await fetch(testUrl, {
+    const response = await fetch(PING_TEST_URL, {
       method: 'GET',
       cache: 'no-store',
       mode: 'cors',
@@ -60,6 +63,15 @@ export async function measurePing() {
       };
     }
 
+    const body = await response.text();
+
+    if (!body || !body.includes('fl=')) {
+      return {
+        success: false,
+        error: 'Invalid probe response',
+      };
+    }
+
     return {
       success: true,
       ping: Math.round(performance.now() - startedAt),
@@ -72,4 +84,27 @@ export async function measurePing() {
       error: error?.message || 'Could not connect through proxy',
     };
   }
+}
+
+export async function measurePing(retries = MEASURE_PING_MAX_RETRIES) {
+  let lastError = '';
+
+  for (let attempt = 0; attempt < retries; attempt++) {
+    if (attempt > 0) {
+      await wait(MEASURE_PING_RETRY_DELAY_MS);
+    }
+
+    const result = await singlePing();
+
+    if (result.success) {
+      return result;
+    }
+
+    lastError = result.error;
+  }
+
+  return {
+    success: false,
+    error: lastError || 'Could not connect through proxy',
+  };
 }

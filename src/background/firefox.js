@@ -6,6 +6,7 @@ import {
   KEEP_ALIVE_ALARM_NAME,
   KEEP_ALIVE_INTERVAL_MINUTES,
   measurePing,
+  PING_TEST_URL,
   PROXY_PASSWORD,
   PROXY_USERNAME,
   updateServerPing,
@@ -18,42 +19,37 @@ const PROXY_ALERT_NOTIFICATION_ID = 'proxy-connection-alert';
 const KEEP_ALIVE_INTERVAL_MS = Math.max(15000, Math.round(KEEP_ALIVE_INTERVAL_MINUTES * 60 * 1000));
 let keepAliveIntervalId = null;
 let keepAliveInFlight = false;
+let consecutiveKeepAliveFailures = 0;
+const MAX_KEEP_ALIVE_FAILURES = 3;
+let consecutiveGetPingFailures = 0;
+const MAX_GET_PING_FAILURES = 3;
 
-function getProxyRequest() {
-  const server = SERVER_MAP[runtimeState.currentServerId];
-  const basicAuth = btoa(`${PROXY_USERNAME}:${PROXY_PASSWORD}`);
-
-  return [
-    {
-      type: server.scheme,
-      host: server.host,
-      port: server.port,
-      failoverTimeout: 3,
-      proxyAuthorizationHeader: `Basic ${basicAuth}`,
-    },
-    null,
-  ];
-}
-
-function onProxyRequest() {
+function onProxyRequest(requestDetails) {
   if (!runtimeState.isProxyActive) {
     return { type: 'direct' };
   }
 
-  return getProxyRequest();
-}
+  const server = SERVER_MAP[runtimeState.currentServerId];
+  const basicAuth = btoa(`${PROXY_USERNAME}:${PROXY_PASSWORD}`);
 
-function syncProxyListener(enabled) {
-  try {
-    api.proxy.onRequest.removeListener(onProxyRequest);
-  } catch (_error) { }
+  const proxyEntry = {
+    type: server.scheme,
+    host: server.host,
+    port: server.port,
+    proxyAuthorizationHeader: `Basic ${basicAuth}`,
+  };
 
-  if (enabled) {
-    api.proxy.onRequest.addListener(onProxyRequest, { urls: ['<all_urls>'] });
+  if (requestDetails.url === PING_TEST_URL) {
+    return { ...proxyEntry, failoverTimeout: 30 };
   }
 
-  runtimeState.isProxyActive = enabled;
+  return [
+    { ...proxyEntry, failoverTimeout: 5 },
+    null,
+  ];
 }
+
+api.proxy.onRequest.addListener(onProxyRequest, { urls: ['<all_urls>'] });
 
 function setBadgeState(mode) {
   const actionApi = api.action;
@@ -114,17 +110,23 @@ async function runKeepAliveProbe() {
   keepAliveInFlight = true;
 
   try {
-    const pingResult = await measurePing();
+    const pingResult = await measurePing(1);
 
     if (!pingResult.success) {
-      await clearProxyInternal({
-        errorMessage: pingResult.error || 'Failed to connect to proxy',
-        automatic: true,
-        notify: true,
-      });
+      consecutiveKeepAliveFailures++;
+
+      if (consecutiveKeepAliveFailures >= MAX_KEEP_ALIVE_FAILURES) {
+        consecutiveKeepAliveFailures = 0;
+        await clearProxyInternal({
+          errorMessage: pingResult.error || 'Failed to connect to proxy',
+          automatic: true,
+          notify: true,
+        });
+      }
       return;
     }
 
+    consecutiveKeepAliveFailures = 0;
     updateServerPing(runtimeState, runtimeState.currentServerId, pingResult.ping);
   } finally {
     keepAliveInFlight = false;
@@ -190,7 +192,9 @@ async function clearProxyInternal(options = {}) {
     badgeState = automatic ? 'attention' : 'idle',
   } = options;
 
-  syncProxyListener(false);
+  runtimeState.isProxyActive = false;
+  consecutiveKeepAliveFailures = 0;
+  consecutiveGetPingFailures = 0;
   stopKeepAliveLoop();
   await api.alarms.clear(KEEP_ALIVE_ALARM_NAME);
   await api.storage.local.set({
@@ -229,9 +233,11 @@ async function disconnectForProbeFailure(errorMessage) {
 async function handleSetProxy(serverId) {
   const normalizedServerId = normalizeServerId(serverId);
   runtimeState.currentServerId = normalizedServerId;
-  syncProxyListener(true);
+  consecutiveKeepAliveFailures = 0;
+  consecutiveGetPingFailures = 0;
+  runtimeState.isProxyActive = true;
 
-  await wait(500);
+  await wait(1000);
   const pingResult = await measurePing();
 
   if (!pingResult.success) {
@@ -275,12 +281,24 @@ async function handleGetPing() {
     };
   }
 
-  const pingResult = await measurePing();
+  const pingResult = await measurePing(1);
 
   if (!pingResult.success) {
-    return disconnectForProbeFailure(pingResult.error);
+    consecutiveGetPingFailures++;
+
+    if (consecutiveGetPingFailures >= MAX_GET_PING_FAILURES) {
+      consecutiveGetPingFailures = 0;
+      return disconnectForProbeFailure(pingResult.error);
+    }
+
+    return {
+      status: 'success',
+      ping: null,
+      timestamp: Date.now(),
+    };
   }
 
+  consecutiveGetPingFailures = 0;
   updateServerPing(runtimeState, runtimeState.currentServerId, pingResult.ping);
 
   return {
@@ -315,30 +333,9 @@ api.webRequest.onAuthRequired.addListener(
   ['blocking']
 );
 
-api.webRequest.onErrorOccurred.addListener(
-  (details) => {
-    const server = SERVER_MAP[runtimeState.currentServerId];
-
-    if (
-      !runtimeState.isProxyActive ||
-      !details.proxyInfo ||
-      !server ||
-      details.proxyInfo.host !== server.host ||
-      details.proxyInfo.port !== server.port
-    ) {
-      return;
-    }
-
-    clearProxyInternal({
-      errorMessage: details.error || 'Failed to connect to proxy',
-      automatic: true,
-      notify: true,
-    }).catch(() => {});
-  },
-  { urls: ['<all_urls>'] }
-);
-
 api.runtime.onMessage.addListener(async (message) => {
+  await ensureInitialized();
+
   if (message.action === 'setProxy') {
     return handleSetProxy(message.server);
   }
@@ -414,6 +411,8 @@ api.runtime.onMessage.addListener(async (message) => {
 });
 
 api.alarms.onAlarm.addListener(async (alarm) => {
+  await ensureInitialized();
+
   if (alarm.name !== KEEP_ALIVE_ALARM_NAME || !runtimeState.isProxyActive) {
     return;
   }
@@ -421,38 +420,47 @@ api.alarms.onAlarm.addListener(async (alarm) => {
   await runKeepAliveProbe();
 });
 
-(async () => {
-  try {
-    const stored = await api.storage.local.get([
-      'badgeState',
-      'vpnConnected',
-      'webrtcEnabled',
-      'selectedServer',
-      'lastDisconnectReason',
-      'lastDisconnectWasAutomatic',
-      'lastDisconnectAt',
-    ]);
-    runtimeState.currentServerId = normalizeServerId(stored.selectedServer);
+let initPromise = null;
 
-    if (stored.vpnConnected) {
-      syncProxyListener(true);
-      await syncProtectionWithStorage(stored.webrtcEnabled !== false);
-      await api.alarms.create(KEEP_ALIVE_ALARM_NAME, { periodInMinutes: KEEP_ALIVE_INTERVAL_MINUTES });
-      startKeepAliveLoop();
-      setBadgeState('connected');
-      await runKeepAliveProbe();
-    } else if (stored.badgeState === 'attention' || (stored.lastDisconnectWasAutomatic && stored.lastDisconnectReason)) {
-      await clearProxyInternal({
-        errorMessage: stored.lastDisconnectReason || '',
-        automatic: true,
-        notify: false,
-        badgeState: 'attention',
-      });
-    } else {
-      setBadgeState('idle');
-    }
-  } catch (_error) {
-    await api.storage.local.set({ vpnConnected: false });
-    setBadgeState('idle');
+function ensureInitialized() {
+  if (!initPromise) {
+    initPromise = (async () => {
+      try {
+        const stored = await api.storage.local.get([
+          'badgeState',
+          'vpnConnected',
+          'webrtcEnabled',
+          'selectedServer',
+          'lastDisconnectReason',
+          'lastDisconnectWasAutomatic',
+          'lastDisconnectAt',
+        ]);
+        runtimeState.currentServerId = normalizeServerId(stored.selectedServer);
+        runtimeState.isProxyActive = stored.vpnConnected === true;
+
+        if (stored.vpnConnected) {
+          await syncProtectionWithStorage(stored.webrtcEnabled !== false);
+          await api.alarms.create(KEEP_ALIVE_ALARM_NAME, { periodInMinutes: KEEP_ALIVE_INTERVAL_MINUTES });
+          startKeepAliveLoop();
+          setBadgeState('connected');
+          runKeepAliveProbe().catch(() => {});
+        } else if (stored.badgeState === 'attention' || (stored.lastDisconnectWasAutomatic && stored.lastDisconnectReason)) {
+          await clearProxyInternal({
+            errorMessage: stored.lastDisconnectReason || '',
+            automatic: true,
+            notify: false,
+            badgeState: 'attention',
+          });
+        } else {
+          setBadgeState('idle');
+        }
+      } catch (_error) {
+        await api.storage.local.set({ vpnConnected: false });
+        setBadgeState('idle');
+      }
+    })();
   }
-})();
+  return initPromise;
+}
+
+ensureInitialized();

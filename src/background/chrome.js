@@ -15,6 +15,8 @@ import {
 const api = chrome;
 const runtimeState = createRuntimeState();
 const PROXY_ALERT_NOTIFICATION_ID = 'proxy-connection-alert';
+let consecutiveKeepAliveFailures = 0;
+const MAX_KEEP_ALIVE_FAILURES = 3;
 
 function storageGet(keys) {
   return new Promise((resolve) => {
@@ -171,6 +173,9 @@ async function clearProxyInternal(options = {}) {
     badgeState = automatic ? 'attention' : 'idle',
   } = options;
 
+  consecutiveKeepAliveFailures = 0;
+  consecutiveGetPingFailures = 0;
+
   try {
     await proxyClear();
   } catch (_error) { }
@@ -220,11 +225,12 @@ async function disconnectForProbeFailure(errorMessage) {
 async function handleSetProxy(serverId) {
   const normalizedServerId = normalizeServerId(serverId);
   runtimeState.currentServerId = normalizedServerId;
+  consecutiveKeepAliveFailures = 0;
 
   await proxySet(getProxyConfig(normalizedServerId));
   runtimeState.isProxyActive = true;
 
-  await wait(500);
+  await wait(1000);
   const pingResult = await measurePing();
 
   if (!pingResult.success) {
@@ -258,6 +264,9 @@ async function handleSetProxy(serverId) {
   };
 }
 
+let consecutiveGetPingFailures = 0;
+const MAX_GET_PING_FAILURES = 3;
+
 async function handleGetPing() {
   if (!runtimeState.isProxyActive) {
     return {
@@ -267,12 +276,24 @@ async function handleGetPing() {
     };
   }
 
-  const pingResult = await measurePing();
+  const pingResult = await measurePing(1);
 
   if (!pingResult.success) {
-    return disconnectForProbeFailure(pingResult.error);
+    consecutiveGetPingFailures++;
+
+    if (consecutiveGetPingFailures >= MAX_GET_PING_FAILURES) {
+      consecutiveGetPingFailures = 0;
+      return disconnectForProbeFailure(pingResult.error);
+    }
+
+    return {
+      status: 'success',
+      ping: null,
+      timestamp: Date.now(),
+    };
   }
 
+  consecutiveGetPingFailures = 0;
   updateServerPing(runtimeState, runtimeState.currentServerId, pingResult.ping);
 
   return {
@@ -301,6 +322,8 @@ api.webRequest.onAuthRequired.addListener(
 
 api.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   (async () => {
+    await ensureInitialized();
+    
     if (message.action === 'setProxy') {
       return handleSetProxy(message.server);
     }
@@ -396,53 +419,70 @@ api.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 api.alarms.onAlarm.addListener(async (alarm) => {
+  await ensureInitialized();
+
   if (alarm.name !== KEEP_ALIVE_ALARM_NAME || !runtimeState.isProxyActive) {
     return;
   }
 
-  const pingResult = await measurePing();
+  const pingResult = await measurePing(1);
 
   if (!pingResult.success) {
-    await clearProxyInternal({
-      errorMessage: pingResult.error || 'Failed to connect to proxy',
-      automatic: true,
-      notify: true,
-    });
+    consecutiveKeepAliveFailures++;
+
+    if (consecutiveKeepAliveFailures >= MAX_KEEP_ALIVE_FAILURES) {
+      consecutiveKeepAliveFailures = 0;
+      await clearProxyInternal({
+        errorMessage: pingResult.error || 'Failed to connect to proxy',
+        automatic: true,
+        notify: true,
+      });
+    }
     return;
   }
 
+  consecutiveKeepAliveFailures = 0;
   updateServerPing(runtimeState, runtimeState.currentServerId, pingResult.ping);
 });
 
-(async () => {
-  try {
-    const stored = await storageGet([
-      'badgeState',
-      'vpnConnected',
-      'webrtcEnabled',
-      'selectedServer',
-      'lastDisconnectReason',
-      'lastDisconnectWasAutomatic',
-      'lastDisconnectAt',
-    ]);
-    runtimeState.currentServerId = normalizeServerId(stored.selectedServer);
+let initPromise = null;
 
-    if (stored.vpnConnected) {
-      await proxySet(getProxyConfig(runtimeState.currentServerId));
-      runtimeState.isProxyActive = true;
-      await syncProtectionWithStorage(stored.webrtcEnabled !== false);
-      await api.alarms.create(KEEP_ALIVE_ALARM_NAME, { periodInMinutes: KEEP_ALIVE_INTERVAL_MINUTES });
-      setBadgeState('connected');
-    } else if (stored.badgeState === 'attention' || (stored.lastDisconnectWasAutomatic && stored.lastDisconnectReason)) {
-      await clearProxyInternal({ preserveDisconnectState: true });
-      setBadgeState('attention');
-    } else {
-      await clearProxyInternal();
-      setBadgeState('idle');
-    }
-  } catch (_error) {
-    await storageSet({ vpnConnected: false });
-    await clearProxyInternal();
-    setBadgeState('idle');
+function ensureInitialized() {
+  if (!initPromise) {
+    initPromise = (async () => {
+      try {
+        const stored = await storageGet([
+          'badgeState',
+          'vpnConnected',
+          'webrtcEnabled',
+          'selectedServer',
+          'lastDisconnectReason',
+          'lastDisconnectWasAutomatic',
+          'lastDisconnectAt',
+        ]);
+        runtimeState.currentServerId = normalizeServerId(stored.selectedServer);
+
+        if (stored.vpnConnected) {
+          await proxySet(getProxyConfig(runtimeState.currentServerId));
+          runtimeState.isProxyActive = true;
+          await syncProtectionWithStorage(stored.webrtcEnabled !== false);
+          await api.alarms.create(KEEP_ALIVE_ALARM_NAME, { periodInMinutes: KEEP_ALIVE_INTERVAL_MINUTES });
+          setBadgeState('connected');
+        } else if (stored.badgeState === 'attention' || (stored.lastDisconnectWasAutomatic && stored.lastDisconnectReason)) {
+          await clearProxyInternal({ preserveDisconnectState: true });
+          setBadgeState('attention');
+        } else {
+          await clearProxyInternal();
+          setBadgeState('idle');
+        }
+      } catch (_error) {
+        await storageSet({ vpnConnected: false });
+        await clearProxyInternal();
+        setBadgeState('idle');
+      }
+    })();
   }
-})();
+  return initPromise;
+}
+
+ensureInitialized();
